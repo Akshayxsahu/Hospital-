@@ -1,0 +1,41 @@
+name: Publish Hospital Accounts Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-release.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download successful Windows installer artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 44922257827 --repo "${GITHUB_REPOSITORY}" --name Hospital-Accounts-Setup --dir release-files
+          EXE_FILE="$(find release-files -type f -name '*.exe' -print -quit)"
+          if [ -z "$EXE_FILE" ]; then
+            echo "::error::The successful build artifact did not contain a Windows .exe installer."
+            find release-files -maxdepth 3 -type f
+            exit 1
+          fi
+          echo "EXE_FILE=$EXE_FILE" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.0.0 --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::Release v1.0.0 already exists; refusing to overwrite it."
+            exit 1
+          fi
+          gh release create v1.0.0 "$EXE_FILE"             --repo "${GITHUB_REPOSITORY}"             --title "Hospital Accounts v1.0.0"             --notes "First Windows installer release for Hospital Accounts. Built from the successful GitHub Actions run #3 on main."
