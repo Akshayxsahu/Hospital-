@@ -15,12 +15,27 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Download successful Windows installer artifact
+      - name: Find latest successful Windows installer build
+        id: build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run download 44922257827 --repo "${GITHUB_REPOSITORY}" --name Hospital-Accounts-Setup --dir release-files
+          RUN_ID="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow build-from-zip.yml --branch main --status success --limit 10 --json databaseId,createdAt --jq 'sort_by(.createdAt) | last | .databaseId')"
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "::error::No successful Windows build run was found."
+            exit 1
+          fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Using successful Windows build run: $RUN_ID"
+
+      - name: Download latest Windows installer artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.build.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" --repo "${GITHUB_REPOSITORY}" --name Hospital-Accounts-Setup --dir release-files
           EXE_FILE="$(find release-files -type f -name '*.exe' -print -quit)"
           if [ -z "$EXE_FILE" ]; then
             echo "::error::The successful build artifact did not contain a Windows .exe installer."
@@ -29,13 +44,16 @@ jobs:
           fi
           echo "EXE_FILE=$EXE_FILE" >> "$GITHUB_ENV"
 
-      - name: Publish GitHub Release
+      - name: Publish Hospital Accounts v1.0.1
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.0.0 --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "::error::Release v1.0.0 already exists; refusing to overwrite it."
+          if gh release view v1.0.1 --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error::Release v1.0.1 already exists; refusing to overwrite it."
             exit 1
           fi
-          gh release create v1.0.0 "$EXE_FILE"             --repo "${GITHUB_REPOSITORY}"             --title "Hospital Accounts v1.0.0"             --notes "First Windows installer release for Hospital Accounts. Built from the successful GitHub Actions run #3 on main."
+          gh release create v1.0.1 "$EXE_FILE" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Hospital Accounts v1.0.1" \
+            --notes "Updated Windows installer built from the latest successful Hospital Accounts Windows Build on main. Includes the latest project ZIP changes."
