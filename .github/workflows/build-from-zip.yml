@@ -23,7 +23,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
       - name: Extract uploaded project ZIP
         id: project
         shell: bash
@@ -54,8 +53,7 @@ jobs:
     needs: locate-project
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Extract uploaded project ZIP
         run: |
           mkdir extracted
@@ -63,8 +61,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: ${{ needs.locate-project.outputs.project_dir }}/package-lock.json
       - name: Install test dependencies
         working-directory: ${{ needs.locate-project.outputs.project_dir }}
         run: npm install --ignore-scripts
@@ -76,8 +72,7 @@ jobs:
     needs: [locate-project, test]
     runs-on: windows-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Extract uploaded project ZIP
         shell: pwsh
         run: |
