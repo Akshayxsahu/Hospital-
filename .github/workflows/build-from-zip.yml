@@ -65,9 +65,20 @@ jobs:
       - name: Install test dependencies
         working-directory: ${{ needs.locate-project.outputs.project_dir }}
         run: npm install --ignore-scripts
-      - name: Remove obsolete login-based UI smoke tests
+      - name: Adapt no-login app and remove obsolete login-based UI smoke tests
         working-directory: ${{ needs.locate-project.outputs.project_dir }}
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("renderer/app.js")
+          s = p.read_text()
+          lines = s.splitlines()
+          obsolete = ("$('lb').onclick", "$('lp').onkeydown", "$('cb').onclick", "$('out').onclick")
+          lines = [line for line in lines if not any(token in line for token in obsolete)]
+          p.write_text("\n".join(lines) + "\n")
+          if "login;" in p.read_text():
+              raise SystemExit("Obsolete login handler remains in renderer/app.js")
+          PY
           if [ -f test/ui.smoke.test.js ]; then
             rm test/ui.smoke.test.js
           fi
@@ -80,12 +91,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract uploaded project ZIP
+      - name: Extract uploaded project ZIP and remove stale login handlers
         shell: pwsh
         run: |
           $zip = Get-ChildItem -Path . -Filter *.zip | Select-Object -First 1
           if (-not $zip) { throw "No project ZIP found in repository root." }
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath extracted -Force
+          $project = "${{ needs.locate-project.outputs.project_dir }}"
+          $app = Join-Path $project "renderer/app.js"
+          $lines = Get-Content -LiteralPath $app
+          $obsolete = @("$('lb').onclick", "$('lp').onkeydown", "$('cb').onclick", "$('out').onclick")
+          $lines = $lines | Where-Object { $line = $_; -not ($obsolete | Where-Object { $line.Contains($_) }) }
+          Set-Content -LiteralPath $app -Value $lines -Encoding utf8
       - uses: actions/setup-node@v4
         with:
           node-version: 22
