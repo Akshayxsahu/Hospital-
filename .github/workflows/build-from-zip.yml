@@ -100,8 +100,7 @@ jobs:
           $project = "${{ needs.locate-project.outputs.project_dir }}"
           $app = Join-Path $project "renderer/app.js"
           $lines = Get-Content -LiteralPath $app
-          $obsolete = @("$('lb').onclick", "$('lp').onkeydown", "$('cb').onclick", "$('out').onclick")
-          $lines = $lines | Where-Object { $line = $_; -not ($obsolete | Where-Object { $line.Contains($_) }) }
+          $lines = $lines | Where-Object { $_ -notmatch 'onclick = login|onkeydown = .*login|auth\.changePassword|auth\.logout' }
           Set-Content -LiteralPath $app -Value $lines -Encoding utf8
       - uses: actions/setup-node@v4
         with:
