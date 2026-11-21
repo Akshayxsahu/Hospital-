@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - "*.zip"
-      - ".github/workflows/build-from-zip.yml"
   workflow_dispatch:
 
 permissions:
