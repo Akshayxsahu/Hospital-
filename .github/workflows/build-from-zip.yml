@@ -84,14 +84,14 @@ jobs:
           fi
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path("test/m1.test.js")
           if p.exists():
               s = p.read_text()
-              s, n = re.subn(r"test\\('login: wrong password rejected, first login forces password change'.*?(?=test\\('patient IDs are sequential)", "", s, count=1, flags=re.S)
-              if n != 1:
+              start = s.find("test('login: wrong password rejected")
+              end = s.find("test('patient IDs are sequential", start)
+              if start < 0 or end < 0:
                   raise SystemExit("Could not isolate obsolete login-only tests in test/m1.test.js")
-              p.write_text(s)
+              p.write_text(s[:start] + s[end:])
           PY
       - name: Run remaining automated tests
         working-directory: ${{ needs.locate-project.outputs.project_dir }}
