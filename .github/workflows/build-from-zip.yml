@@ -1,0 +1,79 @@
+name: Hospital Android APK Build
+
+on:
+  push:
+    paths:
+      - "*.zip"
+      - ".github/workflows/build-from-zip.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hospital-android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build debug APK from uploaded ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Find and extract project ZIP
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP_FILE="$(find . -maxdepth 1 -type f -iname '*.zip' -print -quit)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "::error::No project ZIP found in the repository root. Upload your Android project as a .zip file, then push it."
+            exit 1
+          fi
+
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          GRADLEW="$(find extracted -type f -name gradlew -print -quit)"
+          if [ -z "$GRADLEW" ]; then
+            echo "::error::No Gradle wrapper (gradlew) found in the ZIP. This workflow expects an Android Gradle project."
+            echo "ZIP contents:"
+            find extracted -maxdepth 3 -type f | head -100
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$GRADLEW")"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          chmod +x "$GRADLEW"
+          echo "Using Android project at: $PROJECT_DIR"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hospital-APK
+          path: extracted/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
