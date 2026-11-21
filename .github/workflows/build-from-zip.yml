@@ -1,78 +1,102 @@
-name: Hospital Android APK Build
+name: Hospital Accounts Windows Build
 
 on:
   push:
+    branches: [main]
     paths:
       - "*.zip"
+      - ".github/workflows/build-from-zip.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: hospital-android-build-${{ github.ref }}
+  group: hospital-windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build debug APK from uploaded ZIP
+  locate-project:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    outputs:
+      project_dir: ${{ steps.project.outputs.project_dir }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Find and extract project ZIP
+      - name: Extract uploaded project ZIP
         id: project
         shell: bash
         run: |
           set -euo pipefail
           ZIP_FILE="$(find . -maxdepth 1 -type f -iname '*.zip' -print -quit)"
           if [ -z "$ZIP_FILE" ]; then
-            echo "::error::No project ZIP found in the repository root. Upload your Android project as a .zip file, then push it."
+            echo "::error::No project ZIP found in the repository root."
             exit 1
           fi
-
           mkdir -p extracted
           unzip -q "$ZIP_FILE" -d extracted
-
-          GRADLEW="$(find extracted -type f -name gradlew -print -quit)"
-          if [ -z "$GRADLEW" ]; then
-            echo "::error::No Gradle wrapper (gradlew) found in the ZIP. This workflow expects an Android Gradle project."
-            echo "ZIP contents:"
-            find extracted -maxdepth 3 -type f | head -100
+          PACKAGE_FILE="$(find extracted -type f -name package.json -not -path '*/node_modules/*' -print -quit)"
+          if [ -z "$PACKAGE_FILE" ]; then
+            echo "::error::No package.json found in the uploaded ZIP."
+            find extracted -maxdepth 4 -type f | head -100
             exit 1
           fi
-
-          PROJECT_DIR="$(dirname "$GRADLEW")"
+          PROJECT_DIR="$(dirname "$PACKAGE_FILE")"
+          node -e "const p=require('./$PACKAGE_FILE'); if (!p.scripts || !p.scripts.dist || !p.scripts.test) process.exit(1)" || {
+            echo "::error::The extracted package.json must define test and dist scripts."
+            exit 1
+          }
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          chmod +x "$GRADLEW"
-          echo "Using Android project at: $PROJECT_DIR"
+          echo "Using project directory: $PROJECT_DIR"
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build debug APK
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
+  test:
+    needs: locate-project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Extract uploaded project ZIP
         run: |
-          set -euo pipefail
-          ./gradlew --no-daemon assembleDebug
+          mkdir extracted
+          unzip -q "$(find . -maxdepth 1 -type f -iname '*.zip' -print -quit)" -d extracted
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ needs.locate-project.outputs.project_dir }}/package-lock.json
+      - name: Install test dependencies
+        working-directory: ${{ needs.locate-project.outputs.project_dir }}
+        run: npm install --ignore-scripts
+      - name: Run tests
+        working-directory: ${{ needs.locate-project.outputs.project_dir }}
+        run: npm test
 
-      - name: Upload APK artifact
+  installer:
+    needs: [locate-project, test]
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Extract uploaded project ZIP
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Path . -Filter *.zip | Select-Object -First 1
+          if (-not $zip) { throw "No project ZIP found in repository root." }
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath extracted -Force
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        working-directory: ${{ needs.locate-project.outputs.project_dir }}
+        run: npm install
+      - name: Build Windows installer
+        working-directory: ${{ needs.locate-project.outputs.project_dir }}
+        run: npm run dist
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Hospital-APK
-          path: extracted/**/build/outputs/apk/**/*.apk
+          name: Hospital-Accounts-Setup
+          path: ${{ needs.locate-project.outputs.project_dir }}/dist/*.exe
           if-no-files-found: error
           retention-days: 14
